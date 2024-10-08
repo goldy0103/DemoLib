@@ -1,0 +1,63 @@
+BROKER SCHEMA com.demo.lib
+
+CREATE FILTER MODULE ParseException
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+		CREATE LASTCHILD OF Environment DOMAIN('XML') TYPE Name NAME 'ErrorMsg';
+		DECLARE OXE REFERENCE TO Environment.ErrorMsg;
+				
+		-- Point to the First Child in the ExceptionList Root.
+		DECLARE Location, Diagnostics, DiagnosticsInfo, ErrorFunction CHARACTER;
+		DECLARE Width INTEGER;
+		SET Width = 1; 
+		DECLARE Path REFERENCE TO ExceptionList.*[Width]; 
+		-- Check whether the Width of the Exception Tree is more and Proceed.
+		WHILE LastMove(Path) DO
+			SET Diagnostics = '';
+			SET DiagnosticsInfo = '';
+			SET ErrorFunction = '';
+			WHILE (Path.Number IS NOT NULL)
+				DO				
+				IF Length(Path.Label) > 0 THEN
+					SET Location = Path.Label;
+				END IF;
+				IF Length(Path.Text) > 0 THEN
+					SET Diagnostics = Diagnostics || Path.Text || '. ';
+				END IF;
+				IF Length(Path.Function) > 0 THEN
+					SET ErrorFunction = ErrorFunction || Path.Function || '. ';
+				END IF;
+				
+				MOVE Path LASTCHILD;
+			END WHILE;
+			
+			-- Construct the Specific Diagnostic Message.
+			MOVE Path PARENT;
+			-- Determine the source of message which caused the error.
+			SET OXE.Detail[Width].ExceptionType = FieldName(Path);
+			SET OXE.Detail[Width].ErrorNumber	= Path.Number;
+			SET OXE.Detail[Width].SeverityLevel = Path.Severity;			
+			SET OXE.Detail[Width].ErrorFunction = ErrorFunction;
+			SET OXE.Detail[Width].ErrorSource 	= Location;
+			SET OXE.Detail[Width].DiagnosticMessage= Diagnostics;
+			
+			-- while loop to traverse all the inserts and construct the
+			-- additional diagnostic message
+			MOVE Path FIRSTCHILD NAME 'Insert';
+			IF FieldName(Path)='Insert' THEN
+				WHILE LastMove(Path) do
+					IF Length(Path.Text) > 0 THEN
+						SET DiagnosticsInfo = DiagnosticsInfo || Path.Text || '. ';
+					END IF;
+					MOVE Path NEXTSIBLING NAME 'Insert';
+				END WHILE;
+			END IF;
+			SET OXE.Detail[Width].CauseOfError = DiagnosticsInfo;
+			
+			SET Width = Width +1;
+			MOVE Path TO ExceptionList.*[Width];
+		END WHILE;
+		
+		RETURN TRUE;
+	END;
+END MODULE;
